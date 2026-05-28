@@ -1,0 +1,29 @@
+<h1>Autor: Bartłomiej Deska</h1>
+<button onclick="f(51.23, 22.55);">Lublin</button>
+<button onclick="f(52.22, 20.98)">Warszawa</button>
+<button onclick="f(50.06, 19.93)">Kraków</button>
+<pre id="o"></pre>
+<script>
+	function z(x) {
+		switch (x) {
+			case 0:
+				return "sunny";
+			case 1:
+				return "light overcast";
+			case 2:
+				return "partial overcast";
+			case 3:
+				return "overcast";
+			default:
+				return "bad";
+		}
+	}
+	function f(w, s) {
+		fetch(`https://api.open-meteo.com/v1/forecast?latitude=${w}&longitude=${s}&current=temperature_2m,weather_code`)
+			.then(r => r.json())
+			.then(d => {
+				console.log(d);
+				o.innerHTML = `${d.current.temperature_2m}C ${z(d.current.weather_code)}`;
+			});
+	}
+</script>
