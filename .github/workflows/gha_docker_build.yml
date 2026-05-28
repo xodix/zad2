@@ -1,0 +1,95 @@
+name: GHAction build docker container and push to ghcr.io
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  ci_step:
+    name: Build, tag and push Docker image to DockerHub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # allows pushing to GHCR
+      security-events: write # allows uploading SARIF results
+
+    steps:
+      - name: Check out the source_repo
+        uses: actions/checkout@v6
+
+      - name: QEMU set-up
+        uses: docker/setup-qemu-action@v4
+
+      - name: Buildx set-up
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image (local tag only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          load: true # loads into local Docker daemon for scanning
+
+      - name: Scan with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1" # fails the job if vulnerabilities found
+
+      - name: Upload Trivy results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Build only for scanning
+        uses: docker/build-push-action@v5
+        with:
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: scan-target:latest
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:cache
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scan-target:latest
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Build and push to ghcr.io
+        uses: docker/build-push-action@v5
+        with:
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:cache
+          cache-to: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:cache,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
